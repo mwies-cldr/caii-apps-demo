@@ -42,12 +42,11 @@ import os
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-class EnvAndFileHandler(BaseHTTPRequestHandler):
+class DiagnosticHandler(BaseHTTPRequestHandler):
     def get_directory_contents(self, path):
         """Helper to list all files (including hidden ones) safely."""
         try:
             if os.path.exists(path):
-                # os.listdir automatically includes hidden files (e.g., .bashrc)
                 return os.listdir(path)
             else:
                 return f"Error: Path '{path}' does not exist."
@@ -55,6 +54,27 @@ class EnvAndFileHandler(BaseHTTPRequestHandler):
             return f"Error: Permission denied for path '{path}'."
         except Exception as e:
             return f"Error: {str(e)}"
+
+    def get_mount_points(self):
+        """Helper to read and parse active system mount points."""
+        mounts = []
+        try:
+            # /proc/mounts is the standard way to check active mounts in Linux environments
+            if os.path.exists('/proc/mounts'):
+                with open('/proc/mounts', 'r') as f:
+                    for line in f:
+                        parts = line.split()
+                        if len(parts) >= 3:
+                            mounts.append({
+                                "device": parts[0],
+                                "mount_point": parts[1],
+                                "filesystem_type": parts[2]
+                            })
+                return mounts
+            else:
+                return "Error: /proc/mounts not available (Are you running on Windows/macOS?)."
+        except Exception as e:
+            return f"Error reading mount points: {str(e)}"
 
     def do_GET(self):
         # Send 200 OK status code
@@ -65,9 +85,10 @@ class EnvAndFileHandler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
         
-        # Gather the requested payloads
+        # Construct the complete diagnostic payload
         payload = {
             "environment_variables": dict(os.environ),
+            "mount_points": self.get_mount_points(),
             "tmp_contents": self.get_directory_contents('/tmp'),
             "home_cdsw_contents": self.get_directory_contents('/home/cdsw')
         }
@@ -83,7 +104,7 @@ def run():
     port = int(os.environ.get('CDSW_APP_PORT', os.environ.get('PORT', 8080)))
     
     server_address = ('0.0.0.0', port)
-    httpd = HTTPServer(server_address, EnvAndFileHandler)
+    httpd = HTTPServer(server_address, DiagnosticHandler)
     print(f"HTTP Server successfully running on port {port}...")
     
     try:
