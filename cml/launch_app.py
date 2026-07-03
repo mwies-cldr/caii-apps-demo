@@ -38,6 +38,7 @@
 #
 # ###########################################################################
 import subprocess
-import os
-port = os.environ.get('CDSW_APP_PORT', '8080')
-subprocess.run(['streamlit', 'run', 'app.py', '--server.port', port, '--server.address', '127.0.0.1'])
+
+# Bypass Streamlit orchestration and execute the native Python HTTP server
+if __name__ == '__main__':
+    subprocess.run(['python', 'app.py'])
