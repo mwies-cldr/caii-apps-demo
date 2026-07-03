@@ -1,1 +1,4 @@
-streamlit run app.py --server.port 8080 --server.address 127.0.0.1
+#!/bin/bash
+
+# Execute the native python HTTP endpoint 
+python app.py
