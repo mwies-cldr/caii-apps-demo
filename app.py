@@ -38,42 +38,47 @@
 #
 # ###########################################################################
 
-import seaborn as sns
-import streamlit as st
+import os
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
-st.title("Old Faithful eruptions")
+class EnvVarHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        # Send 200 OK status code
+        self.send_response(200)
+        
+        # Set content type to JSON
+        self.send_header('Content-Type', 'application/json')
+        # Add CORS header to allow cross-origin requests if debugging from a browser
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        
+        # Collect all active environment variables
+        env_vars = dict(os.environ)
+        
+        # Format the response as nicely indented JSON
+        response_json = json.dumps(env_vars, indent=4, sort_keys=True)
+        
+        # Write response back to the client
+        self.wfile.write(response_json.encode('utf-8'))
 
-geyser = sns.load_dataset("geyser")
+def run():
+    # Read the designated application port assigned by CML/CAII
+    # Defaulting to 8080 if not explicitly injected
+    port = int(os.environ.get('CDSW_APP_PORT', os.environ.get('PORT', 8080)))
+    
+    # Bind to 0.0.0.0 so the application can accept external connections through platform routing
+    server_address = ('0.0.0.0', port)
+    httpd = HTTPServer(server_address, EnvVarHandler)
+    print(f"HTTP Server successfully running on port {port}...")
+    
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        httpd.server_close()
+        print("Server safely shut down.")
 
-st.markdown(
-    """
-    This is a tiny app to explore the
-    [Old Faithful Geyser Data](https://www.stat.cmu.edu/~larry/all-of-statistics/=data/faithful.dat).
-    First, we can view some summary statistics.
-    The `duration` variable is the duration of an eruption in minutes,
-    and the `waiting` variable is the time between eruptions in minutes.
-    """
-)
-
-st.write(geyser.describe().T)
-
-
-"""
-So the mean waiting time between eruptions is around 70 minutes,
-with a mean eruption duration of three and a half minutes.
-Summary statistics can be misleading.
-Let us plot the waiting and duration variables against each other.
-
-We'll use a joint density plot, with the marginal densities for each
-variable on the corresponding axis.
-There are clearly two clusters:
-shorter eruptions with a shorter waiting time,
-and longer eruptions with a longer waiting time.
-These are labeled in our data set, so we separate the data and color by cluster.
-"""
-
-
-with sns.axes_style("white"):
-    st.pyplot(
-        sns.jointplot(data=geyser, x="waiting", y="duration", hue="kind", kind="kde")
-    )
+if __name__ == '__main__':
+    run()
