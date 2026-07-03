@@ -42,34 +42,48 @@ import os
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-class EnvVarHandler(BaseHTTPRequestHandler):
+class EnvAndFileHandler(BaseHTTPRequestHandler):
+    def get_directory_contents(self, path):
+        """Helper to list all files (including hidden ones) safely."""
+        try:
+            if os.path.exists(path):
+                # os.listdir automatically includes hidden files (e.g., .bashrc)
+                return os.listdir(path)
+            else:
+                return f"Error: Path '{path}' does not exist."
+        except PermissionError:
+            return f"Error: Permission denied for path '{path}'."
+        except Exception as e:
+            return f"Error: {str(e)}"
+
     def do_GET(self):
         # Send 200 OK status code
         self.send_response(200)
         
         # Set content type to JSON
         self.send_header('Content-Type', 'application/json')
-        # Add CORS header to allow cross-origin requests if debugging from a browser
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
         
-        # Collect all active environment variables
-        env_vars = dict(os.environ)
+        # Gather the requested payloads
+        payload = {
+            "environment_variables": dict(os.environ),
+            "tmp_contents": self.get_directory_contents('/tmp'),
+            "home_cdsw_contents": self.get_directory_contents('/home/cdsw')
+        }
         
         # Format the response as nicely indented JSON
-        response_json = json.dumps(env_vars, indent=4, sort_keys=True)
+        response_json = json.dumps(payload, indent=4, sort_keys=True)
         
         # Write response back to the client
         self.wfile.write(response_json.encode('utf-8'))
 
 def run():
     # Read the designated application port assigned by CML/CAII
-    # Defaulting to 8080 if not explicitly injected
     port = int(os.environ.get('CDSW_APP_PORT', os.environ.get('PORT', 8080)))
     
-    # Bind to 0.0.0.0 so the application can accept external connections through platform routing
     server_address = ('0.0.0.0', port)
-    httpd = HTTPServer(server_address, EnvVarHandler)
+    httpd = HTTPServer(server_address, EnvAndFileHandler)
     print(f"HTTP Server successfully running on port {port}...")
     
     try:
