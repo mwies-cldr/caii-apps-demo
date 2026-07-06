@@ -2,3 +2,4 @@ altair==4.2.2 #need to pin altair version when using steamlit<1.23.0
 matplotlib==3.9.1
 seaborn==0.13.2
 pandas>=2.0.0
+Flask>=3.0.0
